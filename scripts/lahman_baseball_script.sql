@@ -92,7 +92,8 @@ SELECT * FROM appearances
 		CONCAT(namefirst,' ', namelast) AS full_name,
 		--total salary
 		(
-			SELECT coalesce (SUM(salary),0)
+			SELECT 
+				COALESCE (SUM(salary)::numeric::money,0::money) 
 			FROM salaries AS s
 			WHERE s.playerid = p.playerid
 		) AS total_salary
@@ -125,32 +126,152 @@ SELECT * FROM appearances
 	   
 -- 5. Find the average number of strikeouts per game by decade since 1920. 
 --Round the numbers you report to 2 decimal places. Do the same for home runs per game. Do you see any trends?
-   
-   
+  
+
+	SELECT 
+		
+		FLOOR(yearid/10)*10 AS decades,
+		ROUND(SUM(so):: NUMERIC/ SUM(g) :: NUMERIC,2 ) AS avg_strikeouts_per_game,
+		ROUND(SUM(hr):: NUMERIC/ SUM(g) :: NUMERIC,2) AS avg_homeruns_per_game
+	from teams 
+	where yearid >=1920
+	GROUP BY decades 
+	ORDER BY decades ASC
 	
 
 -- 6. Find the player who had the most success stealing bases in 2016, 
 --where __success__ is measured as the percentage of stolen base attempts which are successful. 
 --(A stolen base attempt results either in a stolen base or being caught stealing.) 
 --Consider only players who attempted _at least_ 20 stolen bases.
+
+		
+	SELECT 
+		CONCAT(namefirst,' ',namelast) AS fullname,
+		SUM(s.sb) AS sb,
+		SUM(s.attempts) AS attempts,
+		(SUM(s.sb):: numeric/SUM(s.sb+s.cs))*100  AS percent
+		
+	FROM people AS p
+	INNER JOIN (
+				SELECT 
+					playerid,
+					yearid,
+					sb,
+					cs,
+					sb+cs AS attempts										
+				FROM batting
+	
+				) AS s
+				
+	ON p.playerid = s.playerid
+	WHERE s.attempts>=20 AND s.yearid = 2016
+	GROUP BY fullname
+	ORDER BY percent DESC
+	LIMIT 7
 	
 
 -- 7.  From 1970 – 2016, what is the largest number of wins for a team that did not win the world series? 
 --What is the smallest number of wins for a team that did win the world series? 
---Doing this will probably result in an unusually small number of wins for a world series champion – determine why this is the case. 
---Then redo your query, excluding the problem year. How often from 1970 – 2016 was it the case that a team with the most wins also won the world series? What percentage of the time?
-
-
-
+--Doing this will probably result in an unusually small number of wins for a world series champion – 
+--determine why this is the case. Then redo your query, excluding the problem year. 
+--How often from 1970 – 2016 was it the case that a team with the most wins also won the world series? What percentage of the time?
+	WITH most_wins AS (
+		SELECT
+			yearid,
+			MAX(w) AS w
+		FROM teams
+		WHERE yearid >= 1970
+		GROUP BY yearid
+		ORDER BY yearid
+		),
+	most_win_teams AS (
+		SELECT 
+			yearid,
+			name,
+			wswin
+		FROM teams
+		INNER JOIN most_wins
+		USING(yearid, w)
+	)
+	SELECT 
+		(SELECT COUNT(*)
+		 FROM most_win_teams
+		 WHERE wswin = 'N'
+		) * 100.0 /
+		(SELECT COUNT(*)
+		 FROM most_win_teams
+		);
+  
 -- 8. Using the attendance figures from the homegames table, 
 --find the teams and parks which had the top 5 average attendance per game in 2016 
 --(where average attendance is defined as total attendance divided by number of games). 
 --Only consider parks where there were at least 10 games played. Report the park name, team name, and average attendance. 
 --Repeat for the lowest 5 average attendance.
+	-- TEAMS, PARKS, TOT_attendance/NO_OF_GAMES
+	
+	SELECT 
+		park_name, 
+		sum(attendance),
+		state,
+		sum(games),
+		SUM(attendance)/sum(games) as avg_attendance 
+	FROM homegames AS h
+	INNER JOIN (
+				SELECT 
+					park,
+					park_name, 
+					state
+				FROM parks
+				) AS t
 
-
+	ON h.park =t.park
+	WHERE year =2016 AND games>=10
+	GROUP BY park_name, state
+	ORDER BY avg_attendance DESC
+	LIMIT 5
+	
+select * from parks
 -- 9. Which managers have won the TSN Manager of the Year award in both the National League (NL) and the American League (AL)?
 --Give their full name and the teams that they were managing when they won the award.
+-- FULL_NAME, TEAM_NAME, YEARID, LEAGUES
+
+with cte1 AS(
+		SELECT playerid FROM awardsmanagers
+		WHERE awardid ='TSN Manager of the Year'
+		AND  (lgid ='NL' OR lgid ='AL')
+		group by playerid
+		having count(distinct lgid)=2
+)
+
+SELECT
+		
+
+
+
+
+SELECT 
+	
+	CONCAT(namefirst,' ',namelast) AS fullname,
+	sub.yearid,
+	sub.lgid,
+	t.name
+FROM (SELECT 
+		p.playerid AS playerid, 
+		namefirst AS namefirst, 
+		namelast AS namelast,
+		a.yearid AS yearid,
+		a.lgid AS lgid
+	  FROM people AS p
+	  JOIN awardsmanagers AS a
+	  ON p.playerid= a.playerid
+	  WHERE a.awardid IN (
+	  					SELECT awardid FROM awardsmanagers WHERE awardid='TSN Manager of the Year' 
+	  					AND (a.lgid ='NL' AND a.lgid ='AL')
+						)) AS sub
+	 JOIN teams AS t
+	 ON t.yearid = sub.yearid
+ORDER BY fullname 
+----------------------------------------------------------------------------------------------------------------------------
 
 
 
@@ -158,7 +279,40 @@ SELECT * FROM appearances
 --Consider only players who have played in the league for at least 10 years, 
 --and who hit at least one home run in 2016. Report the players' first and last names and the number of home runs they hit in 2016.
 
+with highest_no_of_homeruns as (
+			select
+				p.playerid,
+				--concat(p.namefirst,' ', p.namelast ) as full_name,
+				--b.yearid, 
+				max(hr) 
+			FROM batting as b
+			JOIN people as p
+			using(playerid)			
+			GROUP BY p.playerid--,b.yearid,full_name
+			)
 
+no_of seasons_played as 
+					
+
+
+
+
+
+--------------------------------------------------------------------------------------------------------------
+SELECT teamid, MAX(hr) FROM teams as t 
+WHERE yearid = 2016 
+GROUP BY teamid
+having count(yearid)>=10
+select * from teams
+
+select p.namefirst, p.namelast,count(t.yearid), max(t.hr) from teams as t
+join appearances as a 
+ON t.yearid = a.yearid
+AND t.teamid= a.teamid
+join people as p
+on p.playerid = a.playerid
+group by p.namefirst, p.namelast
+having count(t.yearid)>=10
 -- **Open-ended questions**
 
 -- 11. Is there any correlation between number of wins and team salary? Use data from 2000 and later to answer this question. As you do this analysis, keep in mind that salaries across the whole league tend to increase together, so you may want to look on a year-by-year basis.
