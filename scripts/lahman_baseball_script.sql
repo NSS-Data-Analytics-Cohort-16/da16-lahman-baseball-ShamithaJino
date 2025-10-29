@@ -14,45 +14,6 @@ SELECT * FROM appearances
 -- NAME, HEIGHT, GAME_COUNT, TEAM_NAME
 
 	SELECT 
-	    namefirst,
-	    namelast,
-		height,
-	    COUNT(a.playerid) AS game_count,
-	    t.name AS team_name
-	FROM people AS p
-	INNER JOIN appearances AS a 
-	    ON p.playerid = a.playerid
-	INNER JOIN teams AS t 
-	    ON a.teamid = t.teamid
-	WHERE height = (SELECT MIN(height) FROM people)
-	GROUP BY namefirst, namelast, height, team_name
-
---------------------------------------------------------------------------------------------------------------
-	
-	SELECT
-	    p.namefirst AS first_name,
-	    p.namelast AS last_name,
-	    p.height,
-		
-	    (
-	        SELECT count(*)
-	        FROM appearances a
-	        WHERE a.playerid = p.playerid
-	    ) AS games_played,
-		
-	    (
-	        SELECT a.teamid
-	        FROM appearances a
-	        WHERE a.playerid = p.playerid
-	    ) AS team
-		
-	FROM people p
-	WHERE height = (SELECT MIN(height) FROM people)
-	--ORDER BY p.height ASC
-	LIMIT 1
-
----------------------------------------------------------------------------------------------------------
-	SELECT 
 		namefirst, 
 		namelast,
 		height,
@@ -235,88 +196,118 @@ select * from parks
 --Give their full name and the teams that they were managing when they won the award.
 -- FULL_NAME, TEAM_NAME, YEARID, LEAGUES
 
-with cte1 AS(
-		SELECT playerid FROM awardsmanagers
-		WHERE awardid ='TSN Manager of the Year'
-		AND  (lgid ='NL' OR lgid ='AL')
-		group by playerid
-		having count(distinct lgid)=2
-)
-
-SELECT
+		with cte1 AS(
+				SELECT playerid FROM awardsmanagers
+				WHERE awardid ='TSN Manager of the Year'
+				AND  (lgid ='NL' OR lgid ='AL')
+				group by playerid
+				having count(distinct lgid)=2
+		)
 		
-
-
-
-
-SELECT 
-	
-	CONCAT(namefirst,' ',namelast) AS fullname,
-	sub.yearid,
-	sub.lgid,
-	t.name
-FROM (SELECT 
-		p.playerid AS playerid, 
-		namefirst AS namefirst, 
-		namelast AS namelast,
-		a.yearid AS yearid,
-		a.lgid AS lgid
-	  FROM people AS p
-	  JOIN awardsmanagers AS a
-	  ON p.playerid= a.playerid
-	  WHERE a.awardid IN (
-	  					SELECT awardid FROM awardsmanagers WHERE awardid='TSN Manager of the Year' 
-	  					AND (a.lgid ='NL' AND a.lgid ='AL')
-						)) AS sub
-	 JOIN teams AS t
-	 ON t.yearid = sub.yearid
-ORDER BY fullname 
-----------------------------------------------------------------------------------------------------------------------------
-
+		SELECT 
+			concat(namefirst,' ',namelast),
+			m.yearid,
+			t.name
+		FROM people as p
+		INNER JOIN cte1
+		using(playerid)
+		INNER JOIN awardsmanagers AS am
+		using(playerid)
+		INNER JOIN managers as m
+		using(playerid, yearid, lgid)
+		INNER JOIN teams AS t
+		using(yearid, teamid,lgid)
+		WHERE am.awardid ='TSN Manager of the Year'
+		ORDER BY m.yearid
 
 
 -- 10. Find all players who hit their career highest number of home runs in 2016.
 --Consider only players who have played in the league for at least 10 years, 
 --and who hit at least one home run in 2016. Report the players' first and last names and the number of home runs they hit in 2016.
 
-with highest_no_of_homeruns as (
-			select
-				p.playerid,
-				--concat(p.namefirst,' ', p.namelast ) as full_name,
-				--b.yearid, 
-				max(hr) 
-			FROM batting as b
-			JOIN people as p
-			using(playerid)			
-			GROUP BY p.playerid--,b.yearid,full_name
-			)
 
-no_of seasons_played as 
 					
 
 
+	WITH  highest_no_of_homeruns AS
+					(	
+					SELECT 
+						playerid,
+						SUM(hr) AS hr
+					FROM batting
+					GROUP BY playerid					
+					),
+	no_of_seasons_played AS
+				(	
+				SELECT
+					playerid,
+					MAX(hr) AS single_hr,
+					COUNT(DISTINCT yearid) AS no_of_years
+				FROM (select playerid, yearid,sum(hr) as hr from batting
+					group by playerid, yearid)
+				GROUP BY playerid				
+				),
+				
+	homerun_2016 AS
+			(		
+				SELECT 
+					playerid,
+					SUM(hr) AS total_hr2016
+				FROM batting
+				WHERE yearid = 2016
+				GROUP BY playerid
+				HAVING SUM(hr)>0
+				)
+		
+	SELECT 
+		concat(namefirst,' ',namelast) AS fullname,
+		hm.total_hr2016 AS hr
+	FROM people AS p
+	INNER JOIN highest_no_of_homeruns AS hh
+	USING(playerid)
+	INNER JOIN no_of_seasons_played AS sp
+	USING(playerid)
+	INNER JOIN homerun_2016 AS hm
+	USING(playerid)	
+	WHERE sp.no_of_years >=10  AND hm.total_hr2016 >= sp.single_hr 
 
 
 
---------------------------------------------------------------------------------------------------------------
-SELECT teamid, MAX(hr) FROM teams as t 
-WHERE yearid = 2016 
-GROUP BY teamid
-having count(yearid)>=10
-select * from teams
-
-select p.namefirst, p.namelast,count(t.yearid), max(t.hr) from teams as t
-join appearances as a 
-ON t.yearid = a.yearid
-AND t.teamid= a.teamid
-join people as p
-on p.playerid = a.playerid
-group by p.namefirst, p.namelast
-having count(t.yearid)>=10
 -- **Open-ended questions**
 
--- 11. Is there any correlation between number of wins and team salary? Use data from 2000 and later to answer this question. As you do this analysis, keep in mind that salaries across the whole league tend to increase together, so you may want to look on a year-by-year basis.
-
+-- 11. Is there any correlation between number of wins and team salary?
+--Use data from 2000 and later to answer this question. As you do this analysis, 
+--keep in mind that salaries across the whole league tend to increase together, so you may want to look on a year-by-year basis.
+	
+	with games_won as (
+				SELECT 
+					yearid, 
+					teamid, 
+					SUM(w) AS total_wins
+				FROM teams
+				WHERE yearid>=2000
+				GROUP BY yearid, teamid
+						),
+	team_salary as(
+				SELECT 
+					yearid, 
+					teamid, 
+					SUM(salary) AS total_salary
+				FROM salaries
+				WHERE yearid>=2000
+				GROUP BY yearid, teamid
+				)
+		
+	SELECT 	
+		gw.yearid AS yearid,
+		gw.teamid AS teamid,
+		total_wins,
+		total_salary
+	FROM games_won AS gw
+	INNER JOIN team_salary AS ts
+	USING(yearid)
+	WHERE yearid DESC
+	
 -- 12. In this question, you will explore the connection between number of wins and attendance.
 --   *  Does there appear to be any correlation between attendance at home games and number of wins? </li>
 --   *  Do teams that win the world series see a boost in attendance the following year? What about teams that made the playoffs? Making the playoffs means either being a division winner or a wild card winner.
