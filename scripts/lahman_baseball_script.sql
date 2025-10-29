@@ -225,51 +225,35 @@ select * from parks
 --Consider only players who have played in the league for at least 10 years, 
 --and who hit at least one home run in 2016. Report the players' first and last names and the number of home runs they hit in 2016.
 
+ WITH career_highest_hr AS (
+	  SELECT 
+	  playerid, 
+	  MAX(hr) AS highest_hr,
+	  COUNT(DISTINCT yearid) AS total_years
+	  FROM 
+		  (
+		  SELECT playerid, yearid,SUM(hr) AS hr
+		  FROM batting
+		  GROUP BY playerid, yearid
+		  )
+	  GROUP BY playerid
+  ),
 
-					
+  homeruns_2016 AS (
+	SELECT playerid, SUM(hr) AS hr_2016 FROM batting 
+	WHERE yearid= 2016
+	GROUP BY playerid
+	HAVING SUM(hr)>0
 
+  )
 
-	WITH  highest_no_of_homeruns AS
-					(	
-					SELECT 
-						playerid,
-						SUM(hr) AS hr
-					FROM batting
-					GROUP BY playerid					
-					),
-	no_of_seasons_played AS
-				(	
-				SELECT
-					playerid,
-					MAX(hr) AS single_hr,
-					COUNT(DISTINCT yearid) AS no_of_years
-				FROM (select playerid, yearid,sum(hr) as hr from batting
-					group by playerid, yearid)
-				GROUP BY playerid				
-				),
-				
-	homerun_2016 AS
-			(		
-				SELECT 
-					playerid,
-					SUM(hr) AS total_hr2016
-				FROM batting
-				WHERE yearid = 2016
-				GROUP BY playerid
-				HAVING SUM(hr)>0
-				)
-		
-	SELECT 
-		concat(namefirst,' ',namelast) AS fullname,
-		hm.total_hr2016 AS hr
-	FROM people AS p
-	INNER JOIN highest_no_of_homeruns AS hh
-	USING(playerid)
-	INNER JOIN no_of_seasons_played AS sp
-	USING(playerid)
-	INNER JOIN homerun_2016 AS hm
-	USING(playerid)	
-	WHERE sp.no_of_years >=10  AND hm.total_hr2016 >= sp.single_hr 
+  SELECT concat(namefirst,' ',namelast) AS fullname,hr_2016
+  FROM people AS p
+  INNER JOIN career_highest_hr AS c
+  USING(playerid)
+  INNER JOIN homeruns_2016 AS h
+  USING(playerid)
+  WHERE c.total_years >=10 AND h.hr_2016 = c.highest_hr
 
 
 
