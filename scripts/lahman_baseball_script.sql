@@ -14,8 +14,7 @@ SELECT * FROM appearances
 -- NAME, HEIGHT, GAME_COUNT, TEAM_NAME
 
 	SELECT 
-		namefirst, 
-		namelast,
+		CONCAT(namefirst,' ', namelast) AS full_name,
 		height,
 	
 		-- TO FIND GAME COUNT
@@ -37,6 +36,7 @@ SELECT * FROM appearances
 							)
 		LIMIT 1
 		) AS team_name
+		
 	FROM people AS p
 	WHERE height = (SELECT MIN(height) FROM people)
 
@@ -82,6 +82,7 @@ SELECT * FROM appearances
 		END AS groups,
 		SUM(po) AS total_putouts
 	FROM fielding
+	WHERE yearid = 2016
 	GROUP BY groups
   
 	   
@@ -91,7 +92,7 @@ SELECT * FROM appearances
 
 	SELECT 
 		
-		FLOOR(yearid/10)*10 AS decades,
+		(yearid/10)*10 AS decades,
 		ROUND(SUM(so):: NUMERIC/ SUM(g) :: NUMERIC,2 ) AS avg_strikeouts_per_game,
 		ROUND(SUM(hr):: NUMERIC/ SUM(g) :: NUMERIC,2) AS avg_homeruns_per_game
 	from teams 
@@ -170,28 +171,23 @@ SELECT * FROM appearances
 --Repeat for the lowest 5 average attendance.
 	-- TEAMS, PARKS, TOT_attendance/NO_OF_GAMES
 	
-	SELECT 
-		park_name, 
-		sum(attendance),
-		state,
-		sum(games),
-		SUM(attendance)/sum(games) as avg_attendance 
-	FROM homegames AS h
-	INNER JOIN (
-				SELECT 
-					park,
-					park_name, 
-					state
-				FROM parks
-				) AS t
 
-	ON h.park =t.park
-	WHERE year =2016 AND games>=10
-	GROUP BY park_name, state
-	ORDER BY avg_attendance DESC
+	SELECT 
+		t.park,		
+		sum(h.attendance) AS attendance,
+		name,
+		sum(h.games) AS games, 
+		SUM(h.attendance)/sum(h.games) as avg_attendance_per_game 
+	FROM teams AS t
+	INNER JOIN homegames AS h
+	ON t.yearid =h.year
+	AND t.teamid = h.team
+	WHERE year =2016
+	GROUP BY t.park, name 
+	HAVING sum(games)>=10
+	ORDER BY avg_attendance_per_game DESC 
 	LIMIT 5
-	
-select * from parks
+		
 -- 9. Which managers have won the TSN Manager of the Year award in both the National League (NL) and the American League (AL)?
 --Give their full name and the teams that they were managing when they won the award.
 -- FULL_NAME, TEAM_NAME, YEARID, LEAGUES
@@ -240,14 +236,19 @@ select * from parks
   ),
 
   homeruns_2016 AS (
-	SELECT playerid, SUM(hr) AS hr_2016 FROM batting 
+	SELECT 
+		playerid, 
+		SUM(hr) AS hr_2016
+	FROM batting 
 	WHERE yearid= 2016
 	GROUP BY playerid
 	HAVING SUM(hr)>0
 
   )
 
-  SELECT concat(namefirst,' ',namelast) AS fullname,hr_2016
+  SELECT 
+	  concat(namefirst,' ',namelast) AS fullname,
+	  hr_2016
   FROM people AS p
   INNER JOIN career_highest_hr AS c
   USING(playerid)
@@ -263,6 +264,10 @@ select * from parks
 --Use data from 2000 and later to answer this question. As you do this analysis, 
 --keep in mind that salaries across the whole league tend to increase together, so you may want to look on a year-by-year basis.
 	
+	
+	select yearid,
+	corr (total_wins, total_salary) as win_salary_correlation 
+	from (
 	with games_won as (
 				SELECT 
 					yearid, 
@@ -289,12 +294,81 @@ select * from parks
 		total_salary
 	FROM games_won AS gw
 	INNER JOIN team_salary AS ts
-	USING(yearid)
-	WHERE yearid DESC
-	
+	USING(yearid, teamid))
+	--order by yearid )
+	group by yearid
+	order by yearid
 -- 12. In this question, you will explore the connection between number of wins and attendance.
 --   *  Does there appear to be any correlation between attendance at home games and number of wins? </li>
---   *  Do teams that win the world series see a boost in attendance the following year? What about teams that made the playoffs? Making the playoffs means either being a division winner or a wild card winner.
+--   *  Do teams that win the world series see a boost in attendance the following year? What about teams that made the playoffs? 
+--Making the playoffs means either being a division winner or a wild card winner.
+	select * from teams
 
--- 13. It is thought that since left-handed pitchers are more rare, causing batters to face them less often, that they are more effective. Investigate this claim and present evidence to either support or dispute this claim. First, determine just how rare left-handed pitchers are compared with right-handed pitchers. Are left-handed pitchers more likely to win the Cy Young Award? Are they more likely to make it into the hall of fame?
+WITH word_series_wins AS (
+				SELECT 
+				teamid,
+				yearid
+				FROM teams
+				WHERE wswin = 'Y'
+				),
+	playoff_teams AS (
+				SELECT 
+				teamid,
+				yearid	 
+				FROM teams
+				WHERE divwin ='Y' OR wcwin ='Y'			
+				),
+	
+	number_of_wins AS (
+				SELECT 
+					teamid, 
+					yearid,
+					SUM(w) AS total_wins
+				FROM teams
+				GROUP BY teamid, yearid 
+				),
+	attendance_by_year AS (
+				SELECT 
+				teamid,
+				yearid,
+				Sum(attendance)as total_attendance 
+				FROM teams
+				GROUP BY teamid, yearid
+				),
+	attendance_change AS (
+				SELECT 
+					current_year.teamid AS team_id,
+					current_year.yearid AS current_yearid,
+					next_year.yearid AS next_yearid,
+					current_year.total_attendance AS current_attendance,
+					next_year.total_attendance AS nextyear_attendance
+					
+				FROM attendance_by_year AS current_year
+				INNER JOIN attendance_by_year AS next_year
+				ON current_year.teamid=next_year.teamid
+				AND next_year.yearid=current_year.yearid+1
+				)
+	SELECT 
+		ws.teamid,
+		nw.total_wins,
+		att_ch.current_yearid,
+		next_yearid,
+		coalesce(current_attendance,0) AS current_attendance,
+		nextyear_attendance,
+		(coalesce(current_attendance,0) - coalesce(nextyear_attendance,0))as attendance_diff
+		
+	FROM attendance_change AS att_ch
+	INNER JOIN number_of_wins AS nw
+	ON nw.teamid=att_ch.team_id
+	AND nw.yearid = att_ch.current_yearid
+	INNER JOIN word_series_wins AS ws
+	ON ws.yearid=att_ch.current_yearid
+	AND ws.teamid=att_ch.team_id
+	--AND nw.yearid = att_ch.next_yearid)
+	
+	
+-- 13. It is thought that since left-handed pitchers are more rare, causing batters to face them less often, 
+--that they are more effective. Investigate this claim and present evidence to either support or dispute this claim.
+--First, determine just how rare left-handed pitchers are compared with right-handed pitchers. 
+--Are left-handed pitchers more likely to win the Cy Young Award? Are they more likely to make it into the hall of fame?
 
